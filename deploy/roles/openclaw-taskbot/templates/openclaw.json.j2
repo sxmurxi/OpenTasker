@@ -1,0 +1,80 @@
+{
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "{{ llm_model }}"
+      },
+      "models": {
+        "{{ llm_model }}": {
+          "alias": "{{ llm_model_alias }}"
+        }
+      },
+      "workspace": "{{ openclaw_workspace }}",
+      "compaction": {
+        "mode": "safeguard"
+      },
+      "maxConcurrent": 4,
+      "subagents": {
+        "maxConcurrent": 8
+      }
+    }
+  },
+  "messages": {
+    "ackReactionScope": "group-mentions"
+  },
+  "commands": {
+    "native": "auto",
+    "nativeSkills": "auto"
+  },
+  "channels": {
+    "telegram": {
+      "name": "{{ bot_name }}",
+      "enabled": true,
+      "dmPolicy": "{{ telegram_dm_policy }}",
+      "botToken": "{{ telegram_bot_token }}",
+      "groupPolicy": "{{ telegram_group_policy }}",
+      "streamMode": "{{ telegram_stream_mode }}",
+      "allowFrom": {{ allowed_users | to_json }},
+      "groups": {
+        "*": {
+          "requireMention": true
+        }
+      },
+      "capabilities": {
+        "inlineButtons": "all"
+      },
+      "webhookUrl": "http://127.0.0.1:18789",
+      "webhookSecret": "tg-handler-secret"
+    }
+  },
+  "gateway": {
+    "port": {{ gateway_port }},
+    "mode": "local",
+    "bind": "{{ gateway_bind }}",
+    "auth": {
+      "mode": "{{ gateway_auth_mode }}",
+      "token": "{{ effective_gateway_token }}"
+    },
+    "tailscale": {
+      "mode": "off",
+      "resetOnExit": false
+    }
+  },
+  "skills": {
+    "install": {
+      "nodeManager": "npm"
+    },
+    "entries": {
+      "team-taskmanager": {
+        "enabled": true
+      }
+    }
+  },
+  "plugins": {
+    "entries": {
+      "telegram": {
+        "enabled": true
+      }
+    }
+  }
+}

@@ -1,0 +1,10 @@
+# USER.md — Known Users
+
+## Admin
+- **Name:** @{{ admin_username }}
+- **Role:** Admin — full access to all bot functions
+
+## Users
+{% for user in regular_users %}
+- **@{{ user.username }}** — {{ user.note }}
+{% endfor %}

@@ -1,0 +1,26 @@
+{
+  "timezone": "{{ timezone }}",
+  "language": "{{ default_language }}",
+  "default_priority": "{{ default_priority }}",
+  "fuzzy_threshold": {{ fuzzy_threshold }},
+  "max_suggestions": {{ max_suggestions }},
+  "standup": {
+    "enabled": {{ standup_enabled | to_json }},
+    "cron": "{{ standup_cron }}",
+    "timezone": "{{ timezone }}"
+  },
+  "weekly_review": {
+    "enabled": {{ weekly_review_enabled | to_json }},
+    "cron": "{{ weekly_review_cron }}",
+    "auto_archive": true
+  },
+  "overdue_check": {
+    "enabled": {{ overdue_check_enabled | to_json }},
+    "cron": "{{ overdue_check_cron }}"
+  },
+  "reminders": {
+    "before_24h": true,
+    "before_1h": true,
+    "at_deadline": true
+  }
+}

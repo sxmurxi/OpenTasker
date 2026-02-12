@@ -1,0 +1,26 @@
+{
+  "timezone": "Europe/Kiev",
+  "language": "auto",
+  "default_priority": "medium",
+  "fuzzy_threshold": 0.6,
+  "max_suggestions": 5,
+  "standup": {
+    "enabled": true,
+    "cron": "30 9 * * 1-5",
+    "timezone": "Europe/Kiev"
+  },
+  "weekly_review": {
+    "enabled": true,
+    "cron": "0 10 * * 1",
+    "auto_archive": true
+  },
+  "overdue_check": {
+    "enabled": true,
+    "cron": "0 */4 * * *"
+  },
+  "reminders": {
+    "before_24h": true,
+    "before_1h": true,
+    "at_deadline": true
+  }
+}

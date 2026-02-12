@@ -1,0 +1,18 @@
+[Unit]
+Description=TaskBot Telegram Handler
+After=openclaw-gateway.service
+Wants=openclaw-gateway.service
+
+[Service]
+Type=simple
+Environment=TELEGRAM_BOT_TOKEN={{ telegram_bot_token }}
+Environment=OPENAI_API_KEY={{ openai_api_key }}
+WorkingDirectory={{ openclaw_workspace }}
+ExecStart=/usr/bin/python3 {{ openclaw_skill_dir }}/scripts/tg_handler.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

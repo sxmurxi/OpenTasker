@@ -1,0 +1,12 @@
+---
+- name: restart gateway
+  ansible.builtin.command: openclaw gateway restart
+  listen: restart gateway
+
+- name: restart tg-handler
+  ansible.builtin.systemd:
+    name: tg-handler
+    scope: user
+    state: restarted
+    daemon_reload: true
+  listen: restart tg-handler

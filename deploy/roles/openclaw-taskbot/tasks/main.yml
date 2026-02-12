@@ -1,0 +1,208 @@
+---
+# ─── OpenClaw TaskBot — Full Deployment ──────────────────────────────
+
+- name: Install system dependencies
+  ansible.builtin.apt:
+    name:
+      - git
+      - curl
+      - gnupg
+      - python3-matplotlib
+    state: present
+    update_cache: true
+
+# ─── Node.js ─────────────────────────────────────────────────────────
+
+- name: Check if Node.js is installed
+  ansible.builtin.command: node --version
+  register: node_check
+  changed_when: false
+  failed_when: false
+
+- name: Add NodeSource repository
+  ansible.builtin.shell: |
+    curl -fsSL https://deb.nodesource.com/setup_{{ nodejs_major_version }}.x | bash -
+  when: node_check.rc != 0
+  args:
+    warn: false
+
+- name: Install Node.js
+  ansible.builtin.apt:
+    name: nodejs
+    state: present
+  when: node_check.rc != 0
+
+# ─── OpenClaw ────────────────────────────────────────────────────────
+
+- name: Check if OpenClaw is installed
+  ansible.builtin.command: openclaw --version
+  register: openclaw_check
+  changed_when: false
+  failed_when: false
+
+- name: Install OpenClaw globally
+  ansible.builtin.command: npm install -g openclaw
+  when: openclaw_check.rc != 0
+
+# ─── Directory structure ─────────────────────────────────────────────
+
+- name: Create OpenClaw directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0700"
+  loop:
+    - "{{ openclaw_home }}"
+    - "{{ openclaw_workspace }}"
+    - "{{ openclaw_data_dir }}"
+    - "{{ openclaw_skill_dir }}/scripts"
+    - "{{ openclaw_skill_dir }}/references"
+    - "{{ openclaw_skill_dir }}/assets/templates"
+    - "{{ openclaw_skill_dir }}/config"
+    - "{{ openclaw_data_dir }}/charts"
+
+# ─── Generate gateway token if not set ───────────────────────────────
+
+- name: Generate gateway token
+  ansible.builtin.command: openssl rand -hex 24
+  register: generated_token
+  when: gateway_token == ""
+  changed_when: false
+
+- name: Set gateway token fact
+  ansible.builtin.set_fact:
+    effective_gateway_token: "{{ gateway_token if gateway_token != '' else generated_token.stdout }}"
+
+# ─── OpenClaw config ─────────────────────────────────────────────────
+
+- name: Deploy openclaw.json
+  ansible.builtin.template:
+    src: openclaw.json.j2
+    dest: "{{ openclaw_home }}/openclaw.json"
+    mode: "0600"
+  notify: restart gateway
+
+- name: Deploy .env with API keys
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ openclaw_home }}/.env"
+    mode: "0600"
+  notify: restart gateway
+
+# ─── Workspace files ─────────────────────────────────────────────────
+
+- name: Deploy workspace markdown files
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ openclaw_workspace }}/{{ item.dest }}"
+    mode: "0644"
+  loop:
+    - { src: "BOOTSTRAP.md.j2", dest: "BOOTSTRAP.md" }
+    - { src: "SOUL.md.j2", dest: "SOUL.md" }
+    - { src: "IDENTITY.md.j2", dest: "IDENTITY.md" }
+    - { src: "USER.md.j2", dest: "USER.md" }
+  notify: restart gateway
+
+# ─── Skill files ─────────────────────────────────────────────────────
+
+- name: Copy skill scripts
+  ansible.builtin.copy:
+    src: "skill/scripts/"
+    dest: "{{ openclaw_skill_dir }}/scripts/"
+    mode: "0755"
+
+- name: Deploy SKILL.md (templated)
+  ansible.builtin.template:
+    src: SKILL.md.j2
+    dest: "{{ openclaw_skill_dir }}/SKILL.md"
+    mode: "0644"
+
+- name: Copy skill references
+  ansible.builtin.copy:
+    src: "skill/references/"
+    dest: "{{ openclaw_skill_dir }}/references/"
+    mode: "0644"
+
+- name: Copy skill assets
+  ansible.builtin.copy:
+    src: "skill/assets/"
+    dest: "{{ openclaw_skill_dir }}/assets/"
+    mode: "0644"
+
+- name: Deploy skill config.json
+  ansible.builtin.template:
+    src: config.json.j2
+    dest: "{{ openclaw_skill_dir }}/config/config.json"
+    mode: "0644"
+
+- name: Copy README.md
+  ansible.builtin.copy:
+    src: "skill/README.md"
+    dest: "{{ openclaw_skill_dir }}/README.md"
+    mode: "0644"
+
+# ─── Initialize database ─────────────────────────────────────────────
+
+- name: Initialize SQLite database
+  ansible.builtin.command: python3 {{ openclaw_skill_dir }}/scripts/init_db.py
+  register: db_init
+  changed_when: "'initialized' in db_init.stdout"
+
+# ─── OpenClaw webhook mode (disable its Telegram polling) ────────────
+
+- name: Set webhook secret (must be set before webhookUrl)
+  ansible.builtin.command: openclaw config set channels.telegram.webhookSecret tg-handler-secret
+  changed_when: true
+
+- name: Set webhook URL (stops OpenClaw polling)
+  ansible.builtin.command: openclaw config set channels.telegram.webhookUrl "http://127.0.0.1:18789"
+  changed_when: true
+
+# ─── Systemd ─────────────────────────────────────────────────────────
+
+- name: Enable loginctl linger for root
+  ansible.builtin.command: loginctl enable-linger root
+  changed_when: false
+
+- name: Install gateway as systemd service
+  ansible.builtin.command: openclaw gateway install --force
+  changed_when: true
+  notify: restart gateway
+
+- name: Create user systemd directory
+  ansible.builtin.file:
+    path: /root/.config/systemd/user
+    state: directory
+    mode: "0755"
+
+- name: Deploy tg-handler systemd service
+  ansible.builtin.template:
+    src: tg-handler.service.j2
+    dest: /root/.config/systemd/user/tg-handler.service
+    mode: "0644"
+  notify: restart tg-handler
+
+# ─── Ensure running ──────────────────────────────────────────────────
+
+- name: Flush handlers to start services now
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for gateway to start
+  ansible.builtin.pause:
+    seconds: 3
+
+- name: Health check
+  ansible.builtin.command: openclaw health
+  register: health_check
+  changed_when: false
+  retries: 3
+  delay: 5
+  until: health_check.rc == 0
+
+- name: Enable and start tg-handler
+  ansible.builtin.systemd:
+    name: tg-handler
+    scope: user
+    enabled: true
+    state: started
+    daemon_reload: true

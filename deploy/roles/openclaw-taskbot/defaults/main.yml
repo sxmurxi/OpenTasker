@@ -1,0 +1,75 @@
+# ─── OpenClaw TaskBot defaults ───────────────────────────────────────
+# Override these in deploy/vars/secrets.yml or per-host vars.
+
+# Telegram bot token (REQUIRED — override in secrets.yml)
+telegram_bot_token: ""
+
+# LLM provider: openai-api-key | anthropic-api-key
+llm_auth_choice: "openai-api-key"
+
+# OpenAI API key (REQUIRED — override in secrets.yml)
+openai_api_key: ""
+
+# Anthropic API key (optional, if using Anthropic)
+anthropic_api_key: ""
+
+# LLM model
+llm_model: "openai/gpt-5.1-codex"
+llm_model_alias: "GPT"
+
+# Bot display name and username
+bot_name: "TaskManagerBot"
+bot_username: "OpenTasker_bot"
+
+# ─── Access control ─────────────────────────────────────────────────
+# Admin username (full access)
+admin_username: "sadindeed"
+
+# Allowed users (task management only)
+allowed_users:
+  - "sadindeed"
+  - "Eshanchik"
+  - "SegovChik"
+
+# Regular (non-admin) users for USER.md
+regular_users:
+  - username: "Eshanchik"
+    note: "regular user, task management only"
+  - username: "SegovChik"
+    note: "regular user, task management only"
+
+# ─── Telegram policies ──────────────────────────────────────────────
+telegram_dm_policy: "allowlist"
+telegram_group_policy: "open"
+telegram_stream_mode: "partial"
+
+# ─── Paths ──────────────────────────────────────────────────────────
+openclaw_home: "/root/.openclaw"
+openclaw_workspace: "/root/.openclaw/workspace"
+openclaw_skill_dir: "/root/.openclaw/workspace/skills/team-taskmanager"
+openclaw_data_dir: "/root/.openclaw/workspace/data"
+
+# ─── Gateway ────────────────────────────────────────────────────────
+gateway_port: 18789
+gateway_bind: "loopback"
+gateway_auth_mode: "token"
+# Auto-generated if empty
+gateway_token: ""
+
+# ─── Node.js ────────────────────────────────────────────────────────
+nodejs_major_version: 22
+
+# ─── TaskManager config ─────────────────────────────────────────────
+timezone: "Europe/Kiev"
+default_language: "auto"
+default_priority: "medium"
+fuzzy_threshold: 0.6
+max_suggestions: 5
+
+# Cron schedules
+standup_enabled: true
+standup_cron: "30 9 * * 1-5"
+weekly_review_enabled: true
+weekly_review_cron: "0 10 * * 1"
+overdue_check_enabled: true
+overdue_check_cron: "0 */4 * * *"

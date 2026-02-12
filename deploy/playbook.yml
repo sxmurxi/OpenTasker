@@ -1,0 +1,8 @@
+---
+- name: Deploy OpenClaw TaskBot
+  hosts: taskbot
+  become: true
+  vars_files:
+    - vars/secrets.yml
+  roles:
+    - openclaw-taskbot
