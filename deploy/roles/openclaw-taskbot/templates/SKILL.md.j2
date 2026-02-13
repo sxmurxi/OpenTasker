@@ -109,6 +109,11 @@ When a user sends a message that looks like a task assignment, extract:
 4. **priority** — high/medium/low:
    - Explicit: "срочно", "urgent", "приоритет высокий", "low priority"
    - Default: medium
+5. **tags** — categories/labels (optional):
+   - Hashtags in message: "#frontend", "#design", "#срочно" → extract as tags
+   - Context clues: "задача по фронту" → tag: "frontend"
+   - Normalize: lowercase, strip `#`, trim whitespace
+   - Pass as JSON array: `"tags": ["frontend", "design"]`
 
 ### Task Extraction Examples
 
@@ -134,7 +139,7 @@ Input: (reply to @anna's message) "сделай это до завтра"
 
 1. Run: `python3 ~/.openclaw/workspace/skills/team-taskmanager/scripts/tasks.py add --json '<extracted_data>'`
 
-   The JSON should include: `description`, `assignee_telegram_id`, `assignee_username`, `creator_telegram_id`, `creator_username`, `chat_id`, `deadline` (ISO 8601 or null), `priority`.
+   The JSON should include: `description`, `assignee_telegram_id`, `assignee_username`, `creator_telegram_id`, `creator_username`, `chat_id`, `deadline` (ISO 8601 or null), `priority`, `tags` (optional array of strings).
 
 2. If assignee is ambiguous (name only, no exact @username match):
    Run: `python3 ~/.openclaw/workspace/skills/team-taskmanager/scripts/resolve_user.py search "<name>" --chat-id <chat_id>`
@@ -215,6 +220,12 @@ python3 scripts/tasks.py search "<query>" [--chat-id <chat_id>]
 
 # Overdue tasks
 python3 scripts/tasks.py overdue [--chat-id <chat_id>]
+
+# List tasks by tag
+python3 scripts/tasks.py list-by-tag "<tag>" [--chat-id <chat_id>]
+
+# List all tags with counts
+python3 scripts/tasks.py list-tags [--chat-id <chat_id>]
 ```
 
 All paths should use the full path: `~/.openclaw/workspace/skills/team-taskmanager/scripts/`
@@ -234,6 +245,8 @@ All paths should use the full path: `~/.openclaw/workspace/skills/team-taskmanag
 | "задачи @ivan" / "что у Ивана"              | tasks.py list --assignee-id <ivan>  |
 | "все просроченные" / "overdue tasks"         | tasks.py overdue --chat-id <chat>   |
 | "найди задачу про презентацию"               | tasks.py search "презентацию"       |
+| "задачи по фронту" / "frontend tasks"        | tasks.py list-by-tag "frontend"     |
+| "какие теги есть" / "what tags exist"        | tasks.py list-tags --chat-id <chat> |
 
 ### Response Formatting
 
@@ -273,7 +286,7 @@ When a task is created with a deadline, schedule one-shot cron jobs as described
 ```bash
 python3 ~/.openclaw/workspace/skills/team-taskmanager/scripts/tasks.py get --id <task_id>
 ```
-If status is "done" or "cancelled", skip the reminder silently.
+If status is "done" or "cancelled" — produce NO output at all. Do NOT send any message like "task is already done" or "skipping reminder". Complete silence — no response, no notification, nothing. The `--deliver` flag means any text you output will be sent to the chat, so output nothing.
 
 **When a deadline is extended**, delete old cron jobs and create new ones:
 ```

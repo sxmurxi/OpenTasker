@@ -148,6 +148,9 @@ def cmd_main(target):
             {"text": "\U0001f4ca \u0421\u0442\u0430\u0442\u0438\u0441\u0442\u0438\u043a\u0430", "callback_data": "m_stats"},
             {"text": "\U0001f4c8 \u0413\u0440\u0430\u0444\u0438\u043a\u0438", "callback_data": "m_viz"},
         ],
+        [
+            {"text": "\U0001f3f7 \u0422\u0435\u0433\u0438", "callback_data": "m_tags"},
+        ],
     ]
     return send_message(target, msg, buttons)
 
@@ -286,6 +289,16 @@ def cmd_task_detail(target, task_id):
     assignee = f"@{t['assignee_username']}" if t["assignee_username"] else "\u043d\u0435 \u043d\u0430\u0437\u043d\u0430\u0447\u0435\u043d"
     creator = f"@{t['creator_username']}" if t["creator_username"] else "\u2014"
 
+    # Parse tags
+    tags_raw = t["tags"] if t["tags"] else "[]"
+    try:
+        tags_list = json.loads(tags_raw) if isinstance(tags_raw, str) else (tags_raw or [])
+    except (json.JSONDecodeError, TypeError):
+        tags_list = []
+    tags_line = ""
+    if tags_list:
+        tags_line = f"\n\U0001f3f7 \u0422\u0435\u0433\u0438: {', '.join('#' + t2 for t2 in tags_list)}"
+
     msg = (
         f"\U0001f4cb \u0417\u0430\u0434\u0430\u0447\u0430 #{t['id']}\n\n"
         f"\U0001f4dd {t['description']}\n"
@@ -293,7 +306,7 @@ def cmd_task_detail(target, task_id):
         f"\U0001f464 \u0421\u043e\u0437\u0434\u0430\u0442\u0435\u043b\u044c: {creator}\n"
         f"\U0001f4c5 \u0414\u0435\u0434\u043b\u0430\u0439\u043d: {dl}\n"
         f"{emoji} \u041f\u0440\u0438\u043e\u0440\u0438\u0442\u0435\u0442: {t['priority']}\n"
-        f"{status}"
+        f"{status}{tags_line}"
     )
 
     if t["status"] in ("todo", "in_progress", "overdue"):
@@ -510,6 +523,92 @@ def cmd_viz_chart(target, chart_type):
         )
 
 
+def cmd_tags(target, chat_id):
+    """Show all tags with task counts as buttons."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT tags FROM tasks WHERE chat_id = ? AND tags != '[]'", [int(chat_id)])
+    rows = cur.fetchall()
+    conn.close()
+
+    tag_counts = {}
+    for row in rows:
+        try:
+            tags = json.loads(row["tags"]) if isinstance(row["tags"], str) else (row["tags"] or [])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        for tag in tags:
+            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+
+    if not tag_counts:
+        msg = "\U0001f3f7 \u0422\u0435\u0433\u0438\n\n\u041d\u0435\u0442 \u0442\u0435\u0433\u043e\u0432. \u0414\u043e\u0431\u0430\u0432\u044c\u0442\u0435 \u0442\u0435\u0433\u0438 \u043f\u0440\u0438 \u0441\u043e\u0437\u0434\u0430\u043d\u0438\u0438 \u0437\u0430\u0434\u0430\u0447\u0438 (#frontend, #design \u0438 \u0442.\u0434.)"
+        buttons = [[{"text": "\u25c0\ufe0f \u041c\u0435\u043d\u044e", "callback_data": "m_main"}]]
+    else:
+        sorted_tags = sorted(tag_counts.items(), key=lambda x: -x[1])
+        lines = ["\U0001f3f7 \u0422\u0435\u0433\u0438\n"]
+        tag_buttons = []
+        for tag, count in sorted_tags:
+            lines.append(f"  #{tag} ({count})")
+            tag_buttons.append({"text": f"#{tag} ({count})", "callback_data": f"g_{tag}"})
+        msg = "\n".join(lines)
+        button_rows = [tag_buttons[i : i + 2] for i in range(0, len(tag_buttons), 2)]
+        button_rows.append([{"text": "\u25c0\ufe0f \u041c\u0435\u043d\u044e", "callback_data": "m_main"}])
+        buttons = button_rows
+
+    return send_message(target, msg, buttons)
+
+
+def cmd_tasks_by_tag(target, tag):
+    """Show tasks filtered by a specific tag."""
+    conn = get_connection()
+    cur = conn.cursor()
+    tag_pattern = f'%"{tag}"%'
+    cur.execute(
+        """
+        SELECT id, description, priority, status, deadline, assignee_username
+        FROM tasks
+        WHERE chat_id = ? AND tags LIKE ? AND status IN ('todo','in_progress','overdue')
+        ORDER BY
+            CASE WHEN status='overdue' THEN 0 WHEN status='in_progress' THEN 1 ELSE 2 END,
+            deadline IS NULL, deadline
+        LIMIT 15
+        """,
+        [int(target), tag_pattern],
+    )
+    tasks = cur.fetchall()
+    conn.close()
+
+    if not tasks:
+        msg = f"\U0001f3f7 #{tag}\n\n\u041d\u0435\u0442 \u0430\u043a\u0442\u0438\u0432\u043d\u044b\u0445 \u0437\u0430\u0434\u0430\u0447 \u0441 \u0442\u0435\u0433\u043e\u043c #{tag}."
+        buttons = [
+            [{"text": "\u25c0\ufe0f \u0422\u0435\u0433\u0438", "callback_data": "m_tags"}],
+            [{"text": "\u25c0\ufe0f \u041c\u0435\u043d\u044e", "callback_data": "m_main"}],
+        ]
+    else:
+        lines = [f"\U0001f3f7 #{tag} ({len(tasks)})\n"]
+        task_buttons = []
+        for t in tasks:
+            emoji = fmt_priority(t["priority"])
+            dl = fmt_deadline(t["deadline"])
+            assignee = f"@{t['assignee_username']}" if t["assignee_username"] else "\u2014"
+            desc = t["description"][:30]
+            lines.append(f"{emoji} #{t['id']} {desc} \u2192 {assignee} \u2014 {dl}")
+            task_buttons.append(
+                {"text": f"#{t['id']}", "callback_data": f"t_{t['id']}"}
+            )
+        msg = "\n".join(lines)
+        button_rows = [task_buttons[i : i + 4] for i in range(0, len(task_buttons), 4)]
+        button_rows.append(
+            [
+                {"text": "\u25c0\ufe0f \u0422\u0435\u0433\u0438", "callback_data": "m_tags"},
+                {"text": "\u25c0\ufe0f \u041c\u0435\u043d\u044e", "callback_data": "m_main"},
+            ]
+        )
+        buttons = button_rows
+
+    return send_message(target, msg, buttons)
+
+
 # ── Route — universal callback dispatcher ─────────────────────
 
 
@@ -539,6 +638,13 @@ def cmd_route(target, callback_data, user_id=None):
         return cmd_stats(target)
     if cb == "m_viz":
         return cmd_viz(target)
+    if cb == "m_tags":
+        return cmd_tags(target, target)
+
+    # Tag filter: g_<tagname>
+    if cb.startswith("g_"):
+        tag = cb[2:]
+        return cmd_tasks_by_tag(target, tag)
 
     # Task detail: t_<id>
     if cb.startswith("t_"):

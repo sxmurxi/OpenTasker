@@ -22,7 +22,7 @@ def get_connection():
 def task_row_to_dict(row):
     """Convert sqlite3.Row to dict, parsing JSON fields."""
     d = dict(row)
-    for field in ("cron_job_ids",):
+    for field in ("cron_job_ids", "tags"):
         if field in d and isinstance(d[field], str):
             try:
                 d[field] = json.loads(d[field])
@@ -33,6 +33,20 @@ def task_row_to_dict(row):
 
 def now_iso():
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def normalize_tags(tags):
+    """Normalize tags: lowercase, strip #, trim whitespace, deduplicate."""
+    if not tags:
+        return []
+    seen = set()
+    result = []
+    for t in tags:
+        tag = t.strip().lstrip("#").lower().strip()
+        if tag and tag not in seen:
+            seen.add(tag)
+            result.append(tag)
+    return result
 
 
 # ─── ADD ────────────────────────────────────────────────────────────────────
@@ -52,12 +66,14 @@ def add_task(data):
     creator_id = data.get("creator_telegram_id") or data.get("creator_id")
     assignee_id = data.get("assignee_telegram_id") or data.get("assignee_id")
 
+    tags = normalize_tags(data.get("tags", []))
+
     cur.execute(
         """INSERT INTO tasks
            (description, title, creator_id, creator_username,
             assignee_id, assignee_username, chat_id,
-            deadline, priority)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            deadline, priority, tags)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             data["description"],
             data.get("title"),
@@ -68,6 +84,7 @@ def add_task(data):
             data["chat_id"],
             data.get("deadline"),
             data.get("priority", "medium"),
+            json.dumps(tags, ensure_ascii=False),
         ),
     )
     task_id = cur.lastrowid
@@ -254,7 +271,7 @@ def edit_task(task_id, updates):
 
     allowed_fields = {
         "description", "title", "priority", "assignee_id", "assignee_telegram_id",
-        "assignee_username", "deadline",
+        "assignee_username", "deadline", "tags",
     }
     set_clauses = []
     params = []
@@ -264,6 +281,8 @@ def edit_task(task_id, updates):
         if key == "assignee_telegram_id":
             field = "assignee_id"
         if field in allowed_fields:
+            if field == "tags":
+                value = json.dumps(normalize_tags(value), ensure_ascii=False)
             set_clauses.append(f"{field} = ?")
             params.append(value)
 
@@ -348,22 +367,76 @@ def search_tasks(query, chat_id=None):
     if chat_id:
         cur.execute(
             """SELECT * FROM tasks
-               WHERE chat_id = ? AND (description LIKE ? OR title LIKE ?)
+               WHERE chat_id = ? AND (description LIKE ? OR title LIKE ? OR tags LIKE ?)
                ORDER BY created_at DESC""",
-            (chat_id, search_pattern, search_pattern),
+            (chat_id, search_pattern, search_pattern, search_pattern),
         )
     else:
         cur.execute(
             """SELECT * FROM tasks
-               WHERE description LIKE ? OR title LIKE ?
+               WHERE description LIKE ? OR title LIKE ? OR tags LIKE ?
                ORDER BY created_at DESC""",
-            (search_pattern, search_pattern),
+            (search_pattern, search_pattern, search_pattern),
         )
 
     tasks = [task_row_to_dict(r) for r in cur.fetchall()]
     conn.close()
 
     return {"status": "ok", "count": len(tasks), "query": query, "tasks": tasks}
+
+
+# ─── TAGS ─────────────────────────────────────────────────────────────────
+
+def list_by_tag(tag, chat_id=None):
+    """List tasks with a specific tag."""
+    conn = get_connection()
+    cur = conn.cursor()
+
+    tag_pattern = f'%"{tag}"%'
+    if chat_id:
+        cur.execute(
+            """SELECT * FROM tasks
+               WHERE tags LIKE ? AND chat_id = ?
+               ORDER BY created_at DESC""",
+            (tag_pattern, chat_id),
+        )
+    else:
+        cur.execute(
+            """SELECT * FROM tasks
+               WHERE tags LIKE ?
+               ORDER BY created_at DESC""",
+            (tag_pattern,),
+        )
+
+    tasks = [task_row_to_dict(r) for r in cur.fetchall()]
+    conn.close()
+
+    return {"status": "ok", "tag": tag, "count": len(tasks), "tasks": tasks}
+
+
+def list_tags(chat_id=None):
+    """List all unique tags with task counts."""
+    conn = get_connection()
+    cur = conn.cursor()
+
+    if chat_id:
+        cur.execute("SELECT tags FROM tasks WHERE chat_id = ? AND tags != '[]'", (chat_id,))
+    else:
+        cur.execute("SELECT tags FROM tasks WHERE tags != '[]'")
+
+    tag_counts = {}
+    for row in cur.fetchall():
+        try:
+            tags = json.loads(row["tags"])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        for tag in tags:
+            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+
+    conn.close()
+
+    tags_list = [{"tag": t, "count": c} for t, c in sorted(tag_counts.items(), key=lambda x: -x[1])]
+    return {"status": "ok", "count": len(tags_list), "tags": tags_list}
 
 
 # ─── OVERDUE ───────────────────────────────────────────────────────────────
@@ -467,6 +540,15 @@ def main():
     p_overdue = subparsers.add_parser("overdue", help="List overdue tasks")
     p_overdue.add_argument("--chat-id", type=int, default=None)
 
+    # list-by-tag
+    p_by_tag = subparsers.add_parser("list-by-tag", help="List tasks with a specific tag")
+    p_by_tag.add_argument("tag", type=str)
+    p_by_tag.add_argument("--chat-id", type=int, default=None)
+
+    # list-tags
+    p_tags = subparsers.add_parser("list-tags", help="List all unique tags")
+    p_tags.add_argument("--chat-id", type=int, default=None)
+
     args = parser.parse_args()
 
     if args.command == "add":
@@ -514,6 +596,12 @@ def main():
 
     elif args.command == "overdue":
         result = get_overdue(args.chat_id)
+
+    elif args.command == "list-by-tag":
+        result = list_by_tag(args.tag, args.chat_id)
+
+    elif args.command == "list-tags":
+        result = list_tags(args.chat_id)
 
     else:
         result = {"error": f"Unknown command: {args.command}"}

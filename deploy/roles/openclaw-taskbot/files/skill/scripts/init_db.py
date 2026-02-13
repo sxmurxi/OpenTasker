@@ -51,6 +51,7 @@ def init_db():
             priority        TEXT DEFAULT 'medium' CHECK(priority IN ('low','medium','high')),
             status          TEXT DEFAULT 'todo' CHECK(status IN ('todo','in_progress','done','cancelled','overdue')),
             cron_job_ids    TEXT DEFAULT '[]',
+            tags            TEXT DEFAULT '[]',
             created_at      TEXT DEFAULT (datetime('now')),
             updated_at      TEXT DEFAULT (datetime('now')),
             completed_at    TEXT
@@ -62,6 +63,15 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
         CREATE INDEX IF NOT EXISTS idx_tasks_deadline ON tasks(deadline);
     """)
+
+    # Migration: add tags column to existing databases
+    cur.execute("PRAGMA table_info(tasks)")
+    columns = [row[1] for row in cur.fetchall()]
+    if "tags" not in columns:
+        cur.execute("ALTER TABLE tasks ADD COLUMN tags TEXT DEFAULT '[]'")
+        conn.commit()
+
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_tasks_tags ON tasks(tags)")
 
     conn.commit()
     conn.close()
